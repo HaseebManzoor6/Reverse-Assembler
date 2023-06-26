@@ -1,0 +1,12 @@
+8 bit words
+
+# 2 bit opcode
+# xxxxxx00 add
+#       01 mul
+#       10 sub
+#       11 div
+
+mask b00000011 {
+    b0001 = add
+    b0010 = mul
+}
