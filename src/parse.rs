@@ -84,63 +84,6 @@ fn gen_mask(v: &Vec<&str>, start: usize) -> Option<Wordt> {
     None
 }
 
-
-/*
- * RETURN: Some(ErrType) if syntax issues in the file
- *         otherwise None
- */
-/*
-fn parse_line(line: &str, data: &mut Instrset, braces: &mut Vec<&Maskmap>) -> Option<ErrType> {
-
-
-    // Other lines (instr or nested maps)
-    else if let Ok(n)=parse_number(&words[0]) {
-        if words.len() >= 3 {
-            // instr
-            if "="==words[1] {
-                if braces.len()==0 {return Some(ErrType::InsertWithoutMap)}
-
-                let x=braces.len()-1;
-                braces[x].map.insert(
-                    n,
-                    Node::Instr(Instrfmt {name: words[2].clone().to_string()})
-                    );
-                return None
-            }
-            // map
-            else if let Some(m)=gen_mask(&words,1) {
-                if words[words.len()-1]=="{" {
-                    if braces.len()==0 {return Some(ErrType::InsertWithoutMap)}
-
-                    let x=braces.len()-1;
-                    braces[x-1].map.insert(n,Node::Map(Maskmap {mask: m, map: HashMap::new()}));
-
-                    if let Some(Node::Map(newmap))=braces[x-1].map.get_mut(&n) {
-                        braces.push(newmap)
-                    }
-                    else {return Some(ErrType::InternalHashmap);}
-
-                }
-                return None
-            }
-        }
-
-        else {return Some(ErrType::ParseNumber)}
-    }
-
-    // Closing braces
-    else if words.len()==1 && words[0]=="}" {
-        if braces.len()>0 {
-            braces.pop();
-            return None
-        }
-        else { return Some(ErrType::ExtraClosingBrace) }
-    }
-
-    Some(ErrType::Other)
-}
-*/
-
 fn parse_first_line(words: &Vec<&str>) -> Result<Wordt,ErrType> {
 
     if words.len()==3 && "words"==words[2] {
@@ -154,28 +97,45 @@ fn parse_first_line(words: &Vec<&str>) -> Result<Wordt,ErrType> {
     return Err(ErrType::NoWordsize)
 }
 
-fn parse_second_line(words: &Vec<&str>, map_opt: Option<&mut &mut Maskmap>) -> Option<ErrType> {
-    if let Some(map)=map_opt {
-        if let Some(n)=gen_mask(words,0) {
-            if n==0 {return Some(ErrType::ZeroMask)}
+fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap) -> Option<ErrType> {
+    if let Some(n)=gen_mask(words,0) {
+        if n==0 {return Some(ErrType::ZeroMask)}
 
-            map.mask=n;
-            return None
-        }
-        else {return Some(ErrType::NoMask)}
+        map.mask=n;
+        return None
     }
-    else { return Some(ErrType::ExtraClosingBraceBefore); }
+    else {return Some(ErrType::NoMask)}
+}
+
+fn create_node(words: &Vec<&str>) -> Result<(Wordt,Node),ErrType> {
+    if words.len()<3 {return Err(ErrType::Other)}
+
+    let n: Wordt;
+    match parse_number(words[0]) {
+        Ok(x) => {n=x;},
+        Err(_) => {return Err(ErrType::ParseNumber)}
+    }
+
+    // instr
+    // TODO can flatten String -> str in Instrfmt?
+    if words[1]=="=" { return Ok((n,Node::Instr(Instrfmt {name: words[2].to_string()}))) }
+    // map
+    return match gen_mask(words,1) {
+        Some(m) => Ok((n,Node::Map(Maskmap{mask: m, map: HashMap::new()}))),
+        None => Err(ErrType::NoMask)
+    }
 }
 
 pub fn parse_file(file: &File) {
-    let mut braces: Vec<&mut Maskmap> = Vec::new();
+    // Curly {} braces represent nesting of Maskmaps. The Wordt is the index in the parent map
+    let mut braces: Vec<(Wordt, Maskmap)> = Vec::new();
 
     let mut d=Instrset {
         wordsize: 0,
         set: Maskmap {mask: 0, map: HashMap::new()},
     };
 
-    braces.push(&mut d.set);
+    braces.push((0,d.set));
 
     let mut ln: u64=0; // lines in file
     let mut lines_parsed=0; // non-comment/empty lines
@@ -192,19 +152,34 @@ pub fn parse_file(file: &File) {
                 if words.len()==0 || words[0].starts_with('#') {continue;}
 
                 // First line (wordsize declaration)
-                if lines_parsed==0 { e=match parse_first_line(&words) {
-                    Ok(n) => {d.wordsize=n; None},
-                    Err(why) => Some(why),
+                if lines_parsed==0 { match parse_first_line(&words) {
+                    Ok(n) => {d.wordsize=n; e=None;},
+                    Err(why) => {e=Some(why);},
                 }}
 
                 // Second line (first opcode mask)
-                else if lines_parsed==1 { e=parse_second_line(&words, braces.last_mut()); }
+                else if lines_parsed==1 { e=parse_second_line(&words, &mut braces.last_mut().unwrap().1); }
 
-                // closing brace
-                else if words.len()==1 && words[0]=="}" { braces.pop(); e=None; }
+                // Closing braces
+                else if words[0]=="}" && words.len()==1 {
+                    if braces.len()==0 { e=Some(ErrType::ExtraClosingBrace); }
+                    else {
+                        let tmp=braces.pop().unwrap();
+                        if braces.len()==0 {d.set=tmp.1;}
+                        else {braces.last_mut().unwrap().1.map.insert(tmp.0,Node::Map(tmp.1));}
+                        e=None;
+                    }
+                }
+
                 // other lines
-                else {e=Some(ErrType::Other);}
-                //else { e=parse_line(l,&mut d, &mut braces); }
+                else {match create_node(&words) {
+                    Ok((i,n)) => match n {
+                        Node::Instr(_) => {braces.last_mut().unwrap().1.map.insert(i,n); e=None;},
+                        Node::Map(map) => {braces.push((i,map)); e=None;},
+                    },
+                    Err(why) => {e=Some(why);}
+                }}
+
 
                 if let Some(t)=e {
                     println!("Line {}: Syntax error in file:",ln);
