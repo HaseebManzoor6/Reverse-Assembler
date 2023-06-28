@@ -15,7 +15,16 @@ fn main() {
 
     match File::open(&argv[1]) {
         Ok(file) => {
-            parse::parse_file(&file);
+            match parse::parse_file(&file) {
+                Err((t,ln)) => {
+                    println!("Line {}: Syntax error in file:",ln);
+                    parse::err_msg(t);
+                },
+                Ok(d) => {
+                    /*TODO*/
+                }
+            }
+
         },
         Err(why) => {
             println!("Couldn't open file {}: {}",&argv[1],why);

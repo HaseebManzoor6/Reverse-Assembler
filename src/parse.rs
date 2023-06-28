@@ -6,44 +6,33 @@ use std::{
     collections::HashMap,
 };
 
-type Wordt = u64;
+#[path="bits.rs"]
+mod bits;
+use bits::Wordt;
 
-struct Instrfmt {
-    name: String,
-}
+#[path="instrset.rs"]
+mod instrset;
+use instrset::{
+    Instrfmt,
+    Node,
+    Maskmap,
+    Instrset,
+};
 
-enum Node {
-    Map(Maskmap),
-    Instr(Instrfmt)
-}
-
-// Bit-masking hashmap. Keys are words under the bitmask, vals are &Node
-struct Maskmap {
-    mask: Wordt,
-    map: HashMap<Wordt, Node>
-}
-
-struct Instrset {
-    wordsize: Wordt,
-    set: Maskmap,
-}
-
-enum ErrType {
+pub enum ErrType {
     NoWordsize,
     ExtraClosingBrace,
     NoMask,
     ZeroWordsize,
     ZeroMask,
     ParseNumber,
-    ExtraClosingBraceBefore,
-    InternalHashmap,
-    InsertWithoutMap,
+    Internal,
     Other,
 }
 
 
 
-fn err_msg(t: ErrType) {
+pub fn err_msg(t: ErrType) {
     println!("\t{}", match t {
         ErrType::NoWordsize => "Expected word size declaraction (like \"32 bit words\" or \"4 byte words\") at start of file",
         ErrType::NoMask => "Expected bit mask declaration for opcode (like \"mask b01110000 {...\" for 3 bit opcodes) after word size declaration)",
@@ -55,10 +44,7 @@ fn err_msg(t: ErrType) {
 
         ErrType::ExtraClosingBrace => "Extra closing brace",
 
-        ErrType::InsertWithoutMap => "Can't place an instruction here; define a bit mask first",
-        ErrType::InternalHashmap => "Internal error",
-
-        ErrType::ExtraClosingBraceBefore => "Extra closing brace before this line",
+        ErrType::Internal => "Internal Error",
 
         ErrType::Other => "Malformed line",
     })
@@ -84,6 +70,9 @@ fn gen_mask(v: &Vec<&str>, start: usize) -> Option<Wordt> {
     None
 }
 
+/*
+ * Read wordsize
+ */
 fn parse_first_line(words: &Vec<&str>) -> Result<Wordt,ErrType> {
 
     if words.len()==3 && "words"==words[2] {
@@ -97,6 +86,9 @@ fn parse_first_line(words: &Vec<&str>) -> Result<Wordt,ErrType> {
     return Err(ErrType::NoWordsize)
 }
 
+/*
+ * Read initial mask for the instruction set
+ */
 fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap) -> Option<ErrType> {
     if let Some(n)=gen_mask(words,0) {
         if n==0 {return Some(ErrType::ZeroMask)}
@@ -107,12 +99,17 @@ fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap) -> Option<ErrType> {
     else {return Some(ErrType::NoMask)}
 }
 
-fn create_node(words: &Vec<&str>) -> Result<(Wordt,Node),ErrType> {
+/*
+ * Create either a Instrfmt or a Maskmap, which is returned and to be
+ *  inserted into a Maskmap
+ */
+fn create_node(words: &Vec<&str>,mut mask: Wordt) -> Result<(Wordt,Node),ErrType> {
     if words.len()<3 {return Err(ErrType::Other)}
 
+    // n Will store the opcode for the new Node, under the containing Maskmap's mask
     let n: Wordt;
     match parse_number(words[0]) {
-        Ok(x) => {n=x;},
+        Ok(x) => {n=bits::unmask(x,mask);},
         Err(_) => {return Err(ErrType::ParseNumber)}
     }
 
@@ -126,7 +123,7 @@ fn create_node(words: &Vec<&str>) -> Result<(Wordt,Node),ErrType> {
     }
 }
 
-pub fn parse_file(file: &File) {
+pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
     // Curly {} braces represent nesting of Maskmaps. The Wordt is the index in the parent map
     let mut braces: Vec<(Wordt, Maskmap)> = Vec::new();
 
@@ -140,8 +137,6 @@ pub fn parse_file(file: &File) {
     let mut ln: u64=0; // lines in file
     let mut lines_parsed=0; // non-comment/empty lines
    
-    let mut e: Option<ErrType>;
-
     for line in io::BufReader::new(file).lines() {
         ln+=1;
         match line {
@@ -153,46 +148,44 @@ pub fn parse_file(file: &File) {
 
                 // First line (wordsize declaration)
                 if lines_parsed==0 { match parse_first_line(&words) {
-                    Ok(n) => {d.wordsize=n; e=None;},
-                    Err(why) => {e=Some(why);},
+                    Ok(n) => {d.wordsize=n;},
+                    Err(why) => return Err((why,ln)),
                 }}
 
                 // Second line (first opcode mask)
-                else if lines_parsed==1 { e=parse_second_line(&words, &mut braces.last_mut().unwrap().1); }
+                else if lines_parsed==1 { match parse_second_line(&words, &mut braces.last_mut().unwrap().1) {
+                    Some(why) => return Err((why,ln)),
+                    None => {},
+                }}
 
                 // Closing braces
                 else if words[0]=="}" && words.len()==1 {
-                    if braces.len()==0 { e=Some(ErrType::ExtraClosingBrace); }
-                    else {
-                        let tmp=braces.pop().unwrap();
-                        if braces.len()==0 {d.set=tmp.1;}
-                        else {braces.last_mut().unwrap().1.map.insert(tmp.0,Node::Map(tmp.1));}
-                        e=None;
-                    }
+                    if braces.len()==0 { return Err((ErrType::ExtraClosingBrace,ln)); }
+
+                    let tmp=braces.pop().unwrap();
+                    // final closing brace returns Instrset
+                    if braces.len()==0 {d.set=tmp.1; return Ok(d)}
+                    // otherwise move temp Maskmap off braces stack and into parent Maskmap
+                    else {braces.last_mut().unwrap().1.map.insert(tmp.0,Node::Map(tmp.1));}
                 }
 
                 // other lines
-                else {match create_node(&words) {
+                else {match create_node(&words,braces.last_mut().unwrap().1.mask) {
                     Ok((i,n)) => match n {
-                        Node::Instr(_) => {braces.last_mut().unwrap().1.map.insert(i,n); e=None;},
-                        Node::Map(map) => {braces.push((i,map)); e=None;},
+                        Node::Instr(_) => {braces.last_mut().unwrap().1.map.insert(i,n);},
+                        Node::Map(map) => {braces.push((i,map));},
                     },
-                    Err(why) => {e=Some(why);}
+                    Err(why) => {return Err((why,ln))}
                 }}
 
-
-                if let Some(t)=e {
-                    println!("Line {}: Syntax error in file:",ln);
-                    err_msg(t);
-                    break;
-                }
 
                 lines_parsed+=1;
             },
             Err(why) => {
                 println!("Internal error: {}",why);
-                break;
+                return Err((ErrType::Internal,ln))
             }
         }
     }
+    Err((ErrType::Other,ln))
 }
