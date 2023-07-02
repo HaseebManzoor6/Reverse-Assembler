@@ -1,4 +1,4 @@
-8 bit words
+1 byte words
 
 # 2 bit opcode
 # xxxxxx00 add
@@ -6,7 +6,7 @@
 #       10 sub
 #       11 div
 
-mask b00000011 {
-    b0001 = add
-    b0010 = mul
+mask 0b10010000 {
+    0b01 = add
+    0b10 = mul
 }

@@ -6,18 +6,24 @@ use std::{
     collections::HashMap,
 };
 
-#[path="bits.rs"]
-mod bits;
-use bits::Wordt;
+#[path="deassemble.rs"]
+pub mod deassemble;
+pub use deassemble::instrset as instrset;
 
+/*
 #[path="instrset.rs"]
-mod instrset;
+pub mod instrset;
+*/
+
 use instrset::{
     Instrfmt,
     Node,
     Maskmap,
     Instrset,
 };
+
+use instrset::bits as bits;
+use bits::Wordt;
 
 pub enum ErrType {
     NoWordsize,
@@ -34,13 +40,13 @@ pub enum ErrType {
 
 pub fn err_msg(t: ErrType) {
     println!("\t{}", match t {
-        ErrType::NoWordsize => "Expected word size declaraction (like \"32 bit words\" or \"4 byte words\") at start of file",
-        ErrType::NoMask => "Expected bit mask declaration for opcode (like \"mask b01110000 {...\" for 3 bit opcodes) after word size declaration)",
+        ErrType::NoWordsize => "Expected word size declaraction (like \"4 byte words\") at start of file",
+        ErrType::NoMask => "Expected bit mask for opcodes (like \"mask b01110000 {\" for 3 bit opcodes) here",
         ErrType::ZeroWordsize => "Word size cannot be 0",
 
         ErrType::ZeroMask => "Bit masks cannot be 0",
 
-        ErrType::ParseNumber => "Error parsing a number. Prefix numbers with \'b\' for binary or \'x\' for hexadecimal. Numbers are base 10 otherwise.",
+        ErrType::ParseNumber => "Error parsing a number. Prefix numbers with \'0b\' for binary or \'0x\' for hexadecimal. Numbers are base 10 otherwise.",
 
         ErrType::ExtraClosingBrace => "Extra closing brace",
 
@@ -51,8 +57,8 @@ pub fn err_msg(t: ErrType) {
 }
 
 fn parse_number(text: &str) -> Result<Wordt, ParseIntError> {
-    if let Some(s)=text.strip_prefix('b')      {return Wordt::from_str_radix(s,2)}
-    else if let Some(s)=text.strip_prefix('x') {return Wordt::from_str_radix(s,16)}
+    if let Some(s)=text.strip_prefix("0b")      {return Wordt::from_str_radix(s,2)}
+    else if let Some(s)=text.strip_prefix("0x") {return Wordt::from_str_radix(s,16)}
     else                                       {return Wordt::from_str_radix(text,10)}
 }
 
@@ -73,13 +79,12 @@ fn gen_mask(v: &Vec<&str>, start: usize) -> Option<Wordt> {
 /*
  * Read wordsize
  */
-fn parse_first_line(words: &Vec<&str>) -> Result<Wordt,ErrType> {
+fn parse_first_line(words: &Vec<&str>) -> Result<usize,ErrType> {
 
     if words.len()==3 && "words"==words[2] {
         if let Ok(n)=parse_number(&words[0]) {
             if n==0                  {return Err(ErrType::ZeroWordsize)}
-            else if words[1]=="byte" {return Ok(n*8)}
-            else if words[1]=="bit"  {return Ok(n)}
+            else if words[1]=="byte" {return Ok((n).try_into().unwrap())}
         }
         else {return Err(ErrType::ParseNumber)}
     }
@@ -103,7 +108,7 @@ fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap) -> Option<ErrType> {
  * Create either a Instrfmt or a Maskmap, which is returned and to be
  *  inserted into a Maskmap
  */
-fn create_node(words: &Vec<&str>,mut mask: Wordt) -> Result<(Wordt,Node),ErrType> {
+fn create_node(words: &Vec<&str>,mask: Wordt) -> Result<(Wordt,Node),ErrType> {
     if words.len()<3 {return Err(ErrType::Other)}
 
     // n Will store the opcode for the new Node, under the containing Maskmap's mask
@@ -172,7 +177,9 @@ pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
                 // other lines
                 else {match create_node(&words,braces.last_mut().unwrap().1.mask) {
                     Ok((i,n)) => match n {
-                        Node::Instr(_) => {braces.last_mut().unwrap().1.map.insert(i,n);},
+                        Node::Instr(ref fmt) => {
+                            println!("Add {} (opcode {:#b} under mask {:#b})",fmt.name,i,braces.last().unwrap().1.mask);
+                            braces.last_mut().unwrap().1.map.insert(i,n);},
                         Node::Map(map) => {braces.push((i,map));},
                     },
                     Err(why) => {return Err((why,ln))}
