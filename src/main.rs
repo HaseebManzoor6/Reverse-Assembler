@@ -15,7 +15,7 @@ use instrset::{
 fn main() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() <= 1 {
-        println!("Usage: {} [filename]",&argv[0]);
+        eprintln!("Usage: {} [filename]",&argv[0]);
         return
     }
 
@@ -25,19 +25,19 @@ fn main() {
         Ok(file) => {
             match parse::parse_file(&file) {
                 Err((t,ln)) => {
-                    println!("Line {}: Syntax error in file:",ln);
+                    eprintln!("Line {}: Syntax error in file:",ln);
                     parse::err_msg(t);
                     return
                 },
                 Ok(d) => { 
                     is=d;
-                    println!("Finished parsing file {}",&argv[1]);
+                    eprintln!("Finished parsing file {}",&argv[1]);
                 }
             }
 
         },
         Err(why) => {
-            println!("Couldn't open script file {}: {}",&argv[1],why);
+            eprintln!("Couldn't open script file {}: {}",&argv[1],why);
             return
         },
     }
@@ -54,12 +54,12 @@ fn main() {
     if argv.len()==3 { match File::open(&argv[2]) {
         Ok(file) => {
             match deassemble::deassemble_file(&file,&is) {
-                None => { println!("Done reading file {}",argv[2]); },
-                Some((ln,e)) => {deassemble::print_deasm_err(ln,e); return}
+                Ok(()) => { eprintln!("Done reading file {}",argv[2]); },
+                Err((ln,e)) => {deassemble::print_deasm_err(ln,e); return}
             }
         },
         Err(why) => {
-            println!("Couldn't open binary file {}: {}",&argv[2],why);
+            eprintln!("Couldn't open binary file {}: {}",&argv[2],why);
             return
         },
     }}

@@ -10,11 +10,6 @@ use std::{
 pub mod deassemble;
 pub use deassemble::instrset as instrset;
 
-/*
-#[path="instrset.rs"]
-pub mod instrset;
-*/
-
 use instrset::{
     Instrfmt,
     Node,
@@ -23,7 +18,10 @@ use instrset::{
 };
 
 use instrset::bits as bits;
-use bits::Wordt;
+use bits::{
+    Wordt,
+    Bitmask,
+};
 
 pub enum ErrType {
     NoWordsize,
@@ -33,13 +31,16 @@ pub enum ErrType {
     ZeroMask,
     ParseNumber,
     Internal,
+
+    UnknownFormat,
+
     Other,
 }
 
 
 
 pub fn err_msg(t: ErrType) {
-    println!("\t{}", match t {
+    eprintln!("\t{}", match t {
         ErrType::NoWordsize => "Expected word size declaraction (like \"4 byte words\") at start of file",
         ErrType::NoMask => "Expected bit mask for opcodes (like \"mask b01110000 {\" for 3 bit opcodes) here",
         ErrType::ZeroWordsize => "Word size cannot be 0",
@@ -52,6 +53,8 @@ pub fn err_msg(t: ErrType) {
 
         ErrType::Internal => "Internal Error",
 
+        ErrType::UnknownFormat => "Unrecognized format",
+
         ErrType::Other => "Malformed line",
     })
 }
@@ -62,17 +65,23 @@ fn parse_number(text: &str) -> Result<Wordt, ParseIntError> {
     else                                       {return Wordt::from_str_radix(text,10)}
 }
 
-fn gen_mask(v: &Vec<&str>, start: usize) -> Option<Wordt> {
+/*
+ * Read a bitmask from a statement like:
+ *  mask 0b01001
+ * Returns the bitmask and the number of words read
+ */
+fn gen_mask(v: &Vec<&str>, start: usize) -> Option<(Bitmask,usize)> {
     if v.len()-1<=start {return None}
 
     if v[start]=="mask" {
         if let Ok(n)=parse_number(v[start+1]) {
             if n==0 {return None}
 
-            return Some(n)
+            return Some( (n,2) )
         }
     }
 
+    eprintln!("Expected bitmask, found nothing");
     None
 }
 
@@ -94,36 +103,79 @@ fn parse_first_line(words: &Vec<&str>) -> Result<usize,ErrType> {
 /*
  * Read initial mask for the instruction set
  */
-fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap) -> Option<ErrType> {
-    if let Some(n)=gen_mask(words,0) {
-        if n==0 {return Some(ErrType::ZeroMask)}
+fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap) -> Result<(),ErrType> {
+    if let Some( (n,_) )=gen_mask(words,0) {
+        if n==0 {return Err(ErrType::ZeroMask)}
 
         map.mask=n;
-        return None
+        return Ok(())
     }
-    else {return Some(ErrType::NoMask)}
+    else {return Err(ErrType::NoMask)}
+}
+
+/*
+ * Create an Instrfmt
+ */
+fn create_fmt(words: &Vec<&str>, mut start: usize) -> Result<Instrfmt,ErrType> {
+    let mut fmt: Vec<(instrset::Fmt,Bitmask)>=Vec::new();
+    let mut mask: Bitmask;
+    let mut read: usize;
+
+    while start<words.len() {
+        // gen mask
+        match gen_mask(words,start+1) {
+            Some( (x,i) ) => {mask=x; read=i;},
+            None => {return Err(ErrType::NoMask)}
+        }
+
+        // get format type
+        match words[start] {
+            "ADDR" => { fmt.push((instrset::Fmt::Addr,mask))},
+            "UINT" => { fmt.push((instrset::Fmt::Unsigned,mask))},
+            "INT"  => { fmt.push((instrset::Fmt::Signed,mask))},
+
+            other => {
+                eprintln!("Unrecognized format: {}",other);
+                return Err(ErrType::UnknownFormat)
+            }
+        }
+
+        start += read+1;
+    }
+
+    Ok(Instrfmt {fmt})
 }
 
 /*
  * Create either a Instrfmt or a Maskmap, which is returned and to be
  *  inserted into a Maskmap
  */
-fn create_node(words: &Vec<&str>,mask: Wordt) -> Result<(Wordt,Node),ErrType> {
+fn create_node(words: &Vec<&str>,mask: Bitmask) -> Result<(Wordt,Node),ErrType> {
     if words.len()<3 {return Err(ErrType::Other)}
 
     // n Will store the opcode for the new Node, under the containing Maskmap's mask
     let n: Wordt;
     match parse_number(words[0]) {
-        Ok(x) => {n=bits::unmask(x,mask);},
-        Err(_) => {return Err(ErrType::ParseNumber)}
+        Ok(x) => {n=bits::align(x,mask);},
+        Err(why) => {
+            eprintln!("Error parsing a number: {}",why);
+            return Err(ErrType::ParseNumber)
+        }
     }
 
     // instr
     // TODO can flatten String -> str in Instrfmt?
-    if words[1]=="=" { return Ok((n,Node::Instr(Instrfmt {name: words[2].to_string()}))) }
+    if words[1]=="=" {
+        match create_fmt(words,3) {
+            Ok(fmt) => {return
+                Ok((n,Node::Instr((words[2].to_string(),fmt))))
+            },
+            Err(why) => {return Err(why)}
+        }
+    }
     // map
     return match gen_mask(words,1) {
-        Some(m) => Ok((n,Node::Map(Maskmap{mask: m, map: HashMap::new()}))),
+        Some( (m,_) ) => Ok((n,Node::Map(Maskmap{mask: m, map: HashMap::new()}))),
         None => Err(ErrType::NoMask)
     }
 }
@@ -131,6 +183,7 @@ fn create_node(words: &Vec<&str>,mask: Wordt) -> Result<(Wordt,Node),ErrType> {
 pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
     // Curly {} braces represent nesting of Maskmaps. The Wordt is the index in the parent map
     let mut braces: Vec<(Wordt, Maskmap)> = Vec::new();
+    let mut n_instrs: Wordt=0;
 
     let mut d=Instrset {
         wordsize: 0,
@@ -159,8 +212,8 @@ pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
 
                 // Second line (first opcode mask)
                 else if lines_parsed==1 { match parse_second_line(&words, &mut braces.last_mut().unwrap().1) {
-                    Some(why) => return Err((why,ln)),
-                    None => {},
+                    Ok(()) => {},
+                    Err(why) => return Err((why,ln)),
                 }}
 
                 // Closing braces
@@ -169,7 +222,11 @@ pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
 
                     let tmp=braces.pop().unwrap();
                     // final closing brace returns Instrset
-                    if braces.len()==0 {d.set=tmp.1; return Ok(d)}
+                    if braces.len()==0 {
+                        d.set=tmp.1;
+                        eprintln!("Add {} opcodes",n_instrs);
+                        return Ok(d)
+                    }
                     // otherwise move temp Maskmap off braces stack and into parent Maskmap
                     else {braces.last_mut().unwrap().1.map.insert(tmp.0,Node::Map(tmp.1));}
                 }
@@ -177,9 +234,11 @@ pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
                 // other lines
                 else {match create_node(&words,braces.last_mut().unwrap().1.mask) {
                     Ok((i,n)) => match n {
-                        Node::Instr(ref fmt) => {
-                            println!("Add {} (opcode {:#b} under mask {:#b})",fmt.name,i,braces.last().unwrap().1.mask);
-                            braces.last_mut().unwrap().1.map.insert(i,n);},
+                        Node::Instr((ref _name,ref _fmt)) => {
+                            //println!("Add {} (opcode {:#b} under mask {:#b})",name,i,braces.last().unwrap().1.mask);
+                            braces.last_mut().unwrap().1.map.insert(i,n);
+                            n_instrs+=1;
+                        },
                         Node::Map(map) => {braces.push((i,map));},
                     },
                     Err(why) => {return Err((why,ln))}
@@ -189,7 +248,7 @@ pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
                 lines_parsed+=1;
             },
             Err(why) => {
-                println!("Internal error: {}",why);
+                eprintln!("Internal error: {}",why);
                 return Err((ErrType::Internal,ln))
             }
         }

@@ -6,7 +6,8 @@
 #       10 sub
 #       11 div
 
-mask 0b10010000 {
-    0b01 = add
-    0b10 = mul
+mask 0b11000000 {
+    0b00 = addi ADDR mask 0b00110000 ADDR mask 0b00001100 INT mask 0b00000011
+    0b01 = add ADDR mask 0b00110000 ADDR mask 0b00001100 ADDR mask 0b00000011
+    0b10 = mul ADDR mask 0b00110000 ADDR mask 0b00001100 ADDR mask 0b00000011
 }
