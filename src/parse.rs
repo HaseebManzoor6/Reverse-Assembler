@@ -62,7 +62,39 @@ pub fn err_msg(t: ErrType) {
 fn parse_number(text: &str) -> Result<Wordt, ParseIntError> {
     if let Some(s)=text.strip_prefix("0b")      {return Wordt::from_str_radix(s,2)}
     else if let Some(s)=text.strip_prefix("0x") {return Wordt::from_str_radix(s,16)}
-    else                                       {return Wordt::from_str_radix(text,10)}
+    else                                        {return Wordt::from_str_radix(text,10)}
+}
+
+/*
+ * Helper for gen_mask()
+ * Parse a range of numbers from text,
+ *  such as 3:7 -> bits 3,4,5,6,7 -> 0b11111000
+ *  or      3   -> bit 3          -> 0b00001000
+ */
+fn parse_range(text: &str) -> Option<Bitmask> {
+    let mut range: [Wordt; 2]=[0,0];
+    let mut ret: Bitmask=0;
+
+    if text.contains(':') {
+        for (i,num) in text.split(':').enumerate() {
+            if i>1 {return None}
+            range[i]=match parse_number(num) {
+                Ok(x) => x,
+                Err(_) => {return None}
+            };
+            if i==1 {ret= ((1<<range[0])-1)
+                         ^((1<<range[1])-1)
+                         +(1<<range[1]);
+            }
+        }
+        return Some(ret);
+    }
+    else {
+        match parse_number(text) {
+            Ok(x) => {return Some(1<<x)},
+            Err(_) => {return None}
+        }
+    }
 }
 
 /*
@@ -72,6 +104,8 @@ fn parse_number(text: &str) -> Result<Wordt, ParseIntError> {
  */
 fn gen_mask(v: &Vec<&str>, start: usize) -> Option<(Bitmask,usize)> {
     if v.len()-1<=start {return None}
+    let mut ranges: [Wordt; 2];
+    let mut mask: Bitmask=0;
 
     if v[start]=="mask" {
         if let Ok(n)=parse_number(v[start+1]) {
@@ -80,9 +114,52 @@ fn gen_mask(v: &Vec<&str>, start: usize) -> Option<(Bitmask,usize)> {
             return Some( (n,2) )
         }
     }
+    else if v[start]=="bits" {
+        for range in v[start+1].split('+') {
+            mask |= match parse_range(range) {
+                Some(m) => m,
+                None => {return None}
+            }
+        }
+        return Some((mask,2))
+    }
 
     eprintln!("Expected bitmask, found nothing");
     None
+}
+
+#[cfg(test)]
+mod genmask_tests {
+    use crate::parse;
+    #[test]
+    fn test_genmask() {
+        let result: (parse::Bitmask, usize);
+        if let Some(m)=parse::gen_mask(
+                &vec!["mask","0b1101"],
+                0) {
+            result=m;
+        }
+        else {assert!(0==1); return}
+        assert!(
+            result == (0b1101,2),
+            "Actual: ({:#b},{})",result.0,result.1
+            );
+    }
+
+    #[test]
+    fn test_genmask_bits() {
+        let result: (parse::Bitmask, usize);
+        if let Some(m)=parse::gen_mask(
+                &vec!["bits","0+1:3"],
+                0) {
+            result=m;
+        }
+        else {assert!(0==1); return}
+        assert!(
+            result == (0b1111,2),
+            "Actual: ({:#b},{})",result.0,result.1
+            );
+    }
 }
 
 /*
