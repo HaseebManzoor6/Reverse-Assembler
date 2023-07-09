@@ -42,12 +42,24 @@ pub fn print_deasm_err(i: u64, e: DeasmErr) {
 fn wordt_from_le(bytes: &Vec<u8>) -> Wordt {
     let mut ret: Wordt=0;
     for i in 0..bytes.len() {
-        ret+= (bytes[i] as Wordt) << (8*i)
+        ret|= (bytes[i] as Wordt) << (8*i)
+    }
+    return ret
+}
+/*
+ * TODO move to bits.rs?
+ * Make an unsigned number from big endian bytes
+ */
+fn wordt_from_be(bytes: &Vec<u8>) -> Wordt {
+    let mut ret: Wordt=0;
+    for i in 0..bytes.len() {
+        ret|= (bytes[bytes.len()-i-1] as Wordt) << (8*i)
     }
     return ret
 }
 
 fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
+    //eprintln!("deassemble: {:#b}",w);
     let mut mask_total: Wordt = 0;
     match instrset::get_fmt(w,&is.set,&mut mask_total) {
         None => {
@@ -67,6 +79,10 @@ fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
                     Fmt::Signed   => {
                         print!( " {}",bits::twoscomp(minimize(w,*m)));
                     },
+                    Fmt::Binary => {
+                        print!( " {:#b}",minimize(w,*m).0);
+                    },
+                    Fmt::Ignore => (),
                 }
                 mask_total |= m;
             }
@@ -115,7 +131,9 @@ pub fn deassemble_file(mut f: &File, is: &Instrset) -> Result<(),(u64,DeasmErr)>
     for i in 0..(len/ws) {
         match reader.read_exact(&mut buffer) {
             Ok(()) => {
-                w=wordt_from_le(&buffer);
+                if is.endian_little {w=wordt_from_le(&buffer);}
+                else {w=wordt_from_be(&buffer);}
+
                 match deassemble_instr(w,&is) {
                     Ok(()) => {},
                     Err(e) => {return Err((i,e))}

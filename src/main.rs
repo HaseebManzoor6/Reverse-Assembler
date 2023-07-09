@@ -23,7 +23,7 @@ fn main() {
     let is: Instrset;
     match File::open(&argv[1]) {
         Ok(file) => {
-            match parse::parse_file(&file) {
+            match parse::parse_file(&file,argv.len()==4 && argv[3]=="-reverse") {
                 Err((t,ln)) => {
                     eprintln!("Line {}: Syntax error in file:",ln);
                     parse::err_msg(t);
@@ -51,7 +51,7 @@ fn main() {
     */
 
     // De-assemble a binary file
-    if argv.len()==3 { match File::open(&argv[2]) {
+    if argv.len()>=3 { match File::open(&argv[2]) {
         Ok(file) => {
             match deassemble::deassemble_file(&file,&is) {
                 Ok(()) => { eprintln!("Done reading file {}",argv[2]); },

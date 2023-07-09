@@ -87,9 +87,30 @@ pub fn minimize(mut w: Wordt, mut mask: Bitmask) -> (Wordt,Wordt) {
     (ret,size)
 }
 
+/*
+ * Reverse <size> bits in <w>
+ * See tests below for an example
+ */
+pub fn reverse(w: &Wordt, size: usize) -> Wordt {
+    let mut ret: Wordt = 0;
+    for i in 0..(8*size) {
+        ret<<=1;
+        if w&(1<<i)!=0 {ret|=1;}
+    }
+    ret
+}
+
 #[cfg(test)]
 mod bits_tests {
     use crate::parse::bits;
+
+    #[test]
+    fn test_reverse() {
+        let a: bits::Wordt=0b01000000000000000000000000000001;
+        let result=bits::reverse(&a,4);
+        assert!(result==0b10000000000000000000000000000010,
+        "actual: {:#b}",result);
+    }
     #[test]
     fn test_minimize() {
         let result=bits::minimize(0b10000011,0b11000011);

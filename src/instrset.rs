@@ -19,6 +19,8 @@ pub enum Fmt {
     Addr,
     Signed,
     Unsigned,
+    Binary,
+    Ignore,
 }
 
 /*
@@ -46,6 +48,7 @@ pub struct Maskmap {
 
 pub struct Instrset {
     pub wordsize: usize,
+    pub endian_little: bool, // if false use big endian
     pub set: Maskmap,
 }
 
