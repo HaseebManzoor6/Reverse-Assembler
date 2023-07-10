@@ -12,6 +12,7 @@ pub use deassemble::instrset as instrset;
 
 use instrset::{
     Instrfmt,
+    Fmt,
     Node,
     Maskmap,
     Instrset,
@@ -207,7 +208,7 @@ fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap, reverse: usize) -> Re
  * Create an Instrfmt
  */
 fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize) -> Result<Instrfmt,ErrType> {
-    let mut fmt: Vec<(instrset::Fmt,Bitmask)>=Vec::new();
+    let mut fmt: Vec<(Fmt,Bitmask)>=Vec::new();
     let mut mask: Bitmask;
     let mut read: usize;
 
@@ -219,18 +220,24 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize) -> Result<Ins
         }
 
         // get format type
-        match words[start] {
-            "addr" => { fmt.push((instrset::Fmt::Addr,mask))},
-            "uint" => { fmt.push((instrset::Fmt::Unsigned,mask))},
-            "int"  => { fmt.push((instrset::Fmt::Signed,mask))},
-            "bin"  => { fmt.push((instrset::Fmt::Binary,mask))},
-            "ignore" => { fmt.push((instrset::Fmt::Ignore,mask))},
+        fmt.push((match words[start] {
+            "addr" => Fmt::Addr,
+            "uint" => Fmt::Unsigned,
+            "int"  => Fmt::Signed,
+            "bin"  => Fmt::Binary,
+
+            "ubranch" => Fmt::Ubranch,
+            "dbranch" => Fmt::Dbranch,
+            "ibranch" => Fmt::Ibranch,
+            "sbranch" => Fmt::Sbranch,
+
+            "ignore" => Fmt::Ignore,
 
             other => {
                 eprintln!("Unrecognized format: {}",other);
                 return Err(ErrType::UnknownFormat)
             }
-        }
+        }, mask));
 
         start += read+1;
     }

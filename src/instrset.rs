@@ -4,8 +4,9 @@
 */
 use std::collections::HashMap;
 
-#[path="bits.rs"]
-pub mod bits;
+#[path="binreader.rs"]
+pub mod binreader;
+pub use binreader::bits as bits;
 
 use bits::{
     Wordt,
@@ -16,10 +17,16 @@ use bits::{
  * Formatting types for printing parts of an instruction.
  */
 pub enum Fmt {
-    Addr,
-    Signed,
-    Unsigned,
-    Binary,
+    Addr,       // memory address
+    Signed,     // two's complement integer
+    Unsigned,   // positive or zero integer
+    Binary,     // bits
+
+    Ubranch,    // branch target; how many instructions above current one?
+    Dbranch,    //                                  ^^^ below ^^^
+    Ibranch,    // branch target; signed integer for distance from current instruction
+    Sbranch,    // exact branch target
+
     Ignore,
 }
 

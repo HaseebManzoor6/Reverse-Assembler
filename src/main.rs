@@ -9,6 +9,7 @@ use parse::deassemble as deassemble;
 
 use instrset::{
     Instrset,
+    binreader::Binreader,
 };
 
 
@@ -49,19 +50,17 @@ fn main() {
         None      => {println!("No match for {:#b}",a);},
     }
     */
+    let mut binreader: Binreader;
 
     // De-assemble a binary file
-    if argv.len()>=3 { match File::open(&argv[2]) {
-        Ok(file) => {
-            match deassemble::deassemble_file(&file,&is) {
-                Ok(()) => { eprintln!("Done reading file {}",argv[2]); },
-                Err((ln,e)) => {deassemble::print_deasm_err(ln,e); return}
-            }
-        },
-        Err(why) => {
-            eprintln!("Couldn't open binary file {}: {}",&argv[2],why);
-            return
-        },
-    }}
+    binreader = match Binreader::new(is.wordsize, &argv[2], is.endian_little) {
+        Some(br) => br,
+        None => { return },
+    };
+
+    match deassemble::deassemble_file(&mut binreader,&is) {
+        Ok(()) => { eprintln!("Done reading file {}",argv[2]); },
+        Err((ln,e)) => {deassemble::print_deasm_err(ln,e); return}
+    }
 }
 

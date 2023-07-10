@@ -29,10 +29,8 @@ const MAXBIT: Wordt=1 << (Wordt::BITS-1);
  * Two's complement to obtain a signed integer from
  *  the first <size> bits of <w>
  */
-// TODO not correct
 pub fn twoscomp((w,size): (Wordt, Wordt)) -> Signt {
     // Copy bits from w to ret
-    // TODO unsafe transmute instead? Need to handle size difference
     let ret: Signt = Signt::from_le_bytes(w.to_le_bytes());
     // sign bit=0 (positive)
     if 0==w&(1<<(size-1)) { return ret }
@@ -99,6 +97,28 @@ pub fn reverse(w: &Wordt, size: usize) -> Wordt {
     }
     ret
 }
+
+/*
+ * Make an unsigned number from little endian bytes
+ */
+pub fn wordt_from_le(bytes: &Vec<u8>) -> Wordt {
+    let mut ret: Wordt=0;
+    for i in 0..bytes.len() {
+        ret|= (bytes[i] as Wordt) << (8*i)
+    }
+    return ret
+}
+/*
+ * Make an unsigned number from big endian bytes
+ */
+pub fn wordt_from_be(bytes: &Vec<u8>) -> Wordt {
+    let mut ret: Wordt=0;
+    for i in 0..bytes.len() {
+        ret|= (bytes[bytes.len()-i-1] as Wordt) << (8*i)
+    }
+    return ret
+}
+
 
 #[cfg(test)]
 mod bits_tests {

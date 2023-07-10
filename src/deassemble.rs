@@ -1,18 +1,13 @@
-use std::{
-    io::{
-        Read,
-        BufReader,
-        Seek, SeekFrom,
-    },
-    fs::File,
-};
-
 #[path="instrset.rs"]
 pub mod instrset;
 
 use instrset::{
     Instrset,
     Fmt,
+};
+
+use instrset::binreader::{
+    Binreader,
 };
 
 use instrset::bits as bits;
@@ -24,38 +19,13 @@ use bits::{
 pub enum DeasmErr {
     NoOp,
     Internal,
-    Unaligned,
 }
 
 pub fn print_deasm_err(i: u64, e: DeasmErr) {
     eprintln!("At {:#x}: {} ",i,match e {
         DeasmErr::NoOp => "Unknown instruction exists in the binary",
         DeasmErr::Internal => "Internal error",
-        DeasmErr::Unaligned => "Size of binary file is not a multiple of wordsize",
     });
-}
-
-/*
- * TODO move to bits.rs?
- * Make an unsigned number from little endian bytes
- */
-fn wordt_from_le(bytes: &Vec<u8>) -> Wordt {
-    let mut ret: Wordt=0;
-    for i in 0..bytes.len() {
-        ret|= (bytes[i] as Wordt) << (8*i)
-    }
-    return ret
-}
-/*
- * TODO move to bits.rs?
- * Make an unsigned number from big endian bytes
- */
-fn wordt_from_be(bytes: &Vec<u8>) -> Wordt {
-    let mut ret: Wordt=0;
-    for i in 0..bytes.len() {
-        ret|= (bytes[bytes.len()-i-1] as Wordt) << (8*i)
-    }
-    return ret
 }
 
 fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
@@ -82,6 +52,12 @@ fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
                     Fmt::Binary => {
                         print!( " {:#b}",minimize(w,*m).0);
                     },
+
+                    Fmt::Ubranch => {print!(" {:#x}",minimize(w,*m).0);},
+                    Fmt::Dbranch => {print!(" {:#x}",minimize(w,*m).0);},
+                    Fmt::Ibranch => {print!(" {:#x}",minimize(w,*m).0);},
+                    Fmt::Sbranch => {print!(" {:#x}",minimize(w,*m).0);},
+
                     Fmt::Ignore => (),
                 }
                 mask_total |= m;
@@ -99,50 +75,17 @@ fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
     }
 }
 
-pub fn deassemble_file(mut f: &File, is: &Instrset) -> Result<(),(u64,DeasmErr)>{
-    // Read <is.wordsize> bytes at a time
-    let mut reader=BufReader::new(f);
-    let mut buffer=Vec::<u8>::with_capacity(is.wordsize);
-    buffer.resize(is.wordsize,0);
-    let len: u64;
-    let mut w: Wordt;
-    let ws: u64=is.wordsize.try_into().unwrap();
-
-    // get filesize, in bytes
-    if let Err(why)=f.seek(SeekFrom::End(0)) {
-        eprintln!("Internal error in file seek: {}",why);
-        return Err((0,DeasmErr::Internal))
-    }
-    match f.stream_position() {
-        Ok(p)    => {len = p;},
-        Err(why) => {
-            eprintln!("Internal error fetching filesize: {}",why);
-            return Err((0,DeasmErr::Internal))
-        },
-    }
-    if let Err(why)=f.rewind() {
-        eprintln!("Internal error in file seek: {}",why);
-        return Err((0,DeasmErr::Internal))
-    }
-    // check if wordsize is ok
-    if len%ws != 0 {return Err((0,DeasmErr::Unaligned))}
-
+pub fn deassemble_file(br: &mut Binreader, is: &Instrset) -> Result<(),(u64,DeasmErr)>{
     // read every instruction
-    for i in 0..(len/ws) {
-        match reader.read_exact(&mut buffer) {
-            Ok(()) => {
-                if is.endian_little {w=wordt_from_le(&buffer);}
-                else {w=wordt_from_be(&buffer);}
-
+    for i in 0..br.n_instrs() {
+        match br.next() {
+            Some(w) => {
                 match deassemble_instr(w,&is) {
                     Ok(()) => {},
                     Err(e) => {return Err((i,e))}
                 }
             },
-            Err(why) => {
-                eprintln!("Internal error while de-assembling: {}",why);
-                return Err((i,DeasmErr::Internal))
-            },
+            None => { return Err((i,DeasmErr::Internal)) },
         }
     }
 
