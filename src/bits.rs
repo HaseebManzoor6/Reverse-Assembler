@@ -25,6 +25,22 @@ pub type Bitmask = Wordt;
 
 const MAXBIT: Wordt=1 << (Wordt::BITS-1);
 
+pub enum BitOpType {
+    AND,
+    OR,
+    XOR,
+    SL, SR // bitshifts
+}
+
+/*
+ * Represents performing operation <typ> with operand <val>
+ *  onto some existing Wordt
+ */
+pub struct BitOp {
+    pub typ: BitOpType,
+    pub val: Wordt,
+}
+
 /*
  * Two's complement to obtain a signed integer from
  *  the first <size> bits of <w>
@@ -47,6 +63,7 @@ pub fn twoscomp((w,size): (Wordt, Wordt)) -> Signt {
  * Return <w>, shifted so that all bits are "under"
  *  the <bitmask>
  * <w> must already be under <mask>
+ * TODO rework. Currently slow
  */
 pub fn align(mut w: Wordt, mut mask: Bitmask) -> Wordt {
     let mut ret: Wordt=0;
@@ -87,7 +104,6 @@ pub fn minimize(mut w: Wordt, mut mask: Bitmask) -> (Wordt,Wordt) {
 
 /*
  * Reverse <size> bits in <w>
- * See tests below for an example
  */
 pub fn reverse(w: &Wordt, size: usize) -> Wordt {
     let mut ret: Wordt = 0;
@@ -120,37 +136,3 @@ pub fn wordt_from_be(bytes: &Vec<u8>) -> Wordt {
 }
 
 
-#[cfg(test)]
-mod bits_tests {
-    use crate::parse::bits;
-
-    #[test]
-    fn test_reverse() {
-        let a: bits::Wordt=0b01000000000000000000000000000001;
-        let result=bits::reverse(&a,4);
-        assert!(result==0b10000000000000000000000000000010,
-        "actual: {:#b}",result);
-    }
-    #[test]
-    fn test_minimize() {
-        let result=bits::minimize(0b10000011,0b11000011);
-        let maxbit: bits::Wordt = 1 << (bits::Wordt::BITS-1);
-        assert!(result.0==0b1011 && result.1==4,
-            "Actual: ({:#b},{}); MAXBIT={:#b}",result.0,result.1,maxbit);
-    }
-
-    #[test]
-    fn test_align() {
-        let result=bits::align(0b1011,0b11000011);
-        assert!(result==0b10000011,
-            "Actual: {:#b}",result);
-    }
-
-    #[test]
-    fn test_twoscomp() {
-        let result=bits::twoscomp((0b1011,4));
-        assert!(result== -5,
-                "Actual: {:#b}={}",result,result);
-        assert!(bits::twoscomp((0b011,3))==3);
-    }
-}

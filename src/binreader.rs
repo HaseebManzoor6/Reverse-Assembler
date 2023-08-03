@@ -17,13 +17,11 @@ pub use bits::Wordt as Wordt;
 pub struct Binreader {
     buffer: Vec<u8>,
     reader: BufReader<File>,
-    fsize: u64,
-    wordsize: u64,
+    pub n_instrs: u64,
     endian_little: bool,
 }
 
 impl Binreader {
-    pub fn n_instrs(&self) -> u64 { return self.fsize / self.wordsize }
     /*
      * Next word from file.
      * May fail on internal file errors
@@ -41,6 +39,13 @@ impl Binreader {
                 return None
             },
         }
+    }
+
+    /*
+     * Rewind binary file back to the start
+     */
+    pub fn rewind(&mut self) -> Result<(),std::io::Error> {
+        self.reader.rewind()
     }
 
     /*
@@ -100,8 +105,7 @@ impl Binreader {
         Some(Binreader {
             buffer: buffer,
             reader: BufReader::new(f),
-            fsize: fsize,
-            wordsize: ws,
+            n_instrs: fsize/ws,
             endian_little: endian_little,
         })
     }

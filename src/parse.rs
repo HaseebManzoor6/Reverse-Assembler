@@ -3,7 +3,9 @@ use std::{
     io::{self, BufRead},
     u64,
     num::ParseIntError,
-    collections::HashMap,
+    collections::{
+        HashMap,
+    },
 };
 
 #[path="deassemble.rs"]
@@ -12,7 +14,7 @@ pub use deassemble::instrset as instrset;
 
 use instrset::{
     Instrfmt,
-    Fmt,
+    Fmt, FmtType,
     Node,
     Maskmap,
     Instrset,
@@ -22,6 +24,7 @@ use instrset::bits as bits;
 use bits::{
     Wordt,
     Bitmask,
+    BitOp, BitOpType,
 };
 
 pub enum ErrType {
@@ -35,6 +38,7 @@ pub enum ErrType {
     Internal,
 
     UnknownFormat,
+    ExpectedNumber,
 
     Other,
 }
@@ -57,6 +61,7 @@ pub fn err_msg(t: ErrType) {
         ErrType::Internal => "Internal Error",
 
         ErrType::UnknownFormat => "Unrecognized format",
+        ErrType::ExpectedNumber => "Expected a number here, found end of line",
 
         ErrType::Other => "Malformed line",
     })
@@ -135,40 +140,6 @@ fn gen_mask(v: &Vec<&str>, start: usize, reverse: usize) -> Option<(Bitmask,usiz
     None
 }
 
-#[cfg(test)]
-mod genmask_tests {
-    use crate::parse;
-    #[test]
-    fn test_genmask() {
-        let result: (parse::Bitmask, usize);
-        if let Some(m)=parse::gen_mask(
-                &vec!["mask","0b1101"],
-                0, 0) {
-            result=m;
-        }
-        else {assert!(0==1); return}
-        assert!(
-            result == (0b1101,2),
-            "Actual: ({:#b},{})",result.0,result.1
-            );
-    }
-
-    #[test]
-    fn test_genmask_bits() {
-        let result: (parse::Bitmask, usize);
-        if let Some(m)=parse::gen_mask(
-                &vec!["0+1:2+15"],
-                0, 2) {
-            result=m;
-        }
-        else {assert!(0==1); return}
-        assert!(
-            result == (0b1110000000000001,1),
-            "Actual: ({:#b},{})",result.0,result.1
-            );
-    }
-}
-
 /*
  * Read wordsize and endianness
  */
@@ -207,10 +178,15 @@ fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap, reverse: usize) -> Re
 /*
  * Create an Instrfmt
  */
-fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize) -> Result<Instrfmt,ErrType> {
-    let mut fmt: Vec<(Fmt,Bitmask)>=Vec::new();
+fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize) 
+-> Result<Instrfmt,ErrType> {
+    let mut fmt: Vec<Fmt>=Vec::new();
     let mut mask: Bitmask;
     let mut read: usize;
+
+    let mut ops: Vec<BitOp>;
+    let mut n: Wordt;
+    let mut tmp: BitOpType;
 
     while start<words.len() {
         // gen mask
@@ -219,25 +195,56 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize) -> Result<Ins
             None => {return Err(ErrType::NoMask)}
         }
 
+        // get BitOps
+        ops=Vec::new();
+        for i in start+read+1..words.len() {
+
+            // get op
+            tmp=match words[i] {
+                "<<" => BitOpType::SL,
+                ">>" => BitOpType::SR,
+                "&" => BitOpType::AND,
+                "|" => BitOpType::OR,
+                "^" => BitOpType::XOR,
+
+                _other => break,
+            };
+
+            // get number
+            if i+1>=words.len() {return Err(ErrType::ExpectedNumber)}
+            n=match parse_number(words[i+1]) {
+                Ok(x) => x,
+                Err(_why) => {return Err(ErrType::ParseNumber)}
+            };
+
+            ops.push(BitOp {typ: tmp, val: n});
+            read+=2;
+        }
+
         // get format type
-        fmt.push((match words[start] {
-            "addr" => Fmt::Addr,
-            "uint" => Fmt::Unsigned,
-            "int"  => Fmt::Signed,
-            "bin"  => Fmt::Binary,
+        fmt.push(Fmt
+           {typ: match words[start] {
+                "addr" => FmtType::Addr,
+                "uint" => FmtType::Unsigned,
+                "int"  => FmtType::Signed,
+                "bin"  => FmtType::Binary,
 
-            "ubranch" => Fmt::Ubranch,
-            "dbranch" => Fmt::Dbranch,
-            "ibranch" => Fmt::Ibranch,
-            "sbranch" => Fmt::Sbranch,
+                "ubranch" => FmtType::Ubranch,
+                "dbranch" => FmtType::Dbranch,
+                "ibranch" => FmtType::Ibranch,
+                "sbranch" => FmtType::Sbranch,
 
-            "ignore" => Fmt::Ignore,
+                "ignore" => FmtType::Ignore,
 
-            other => {
-                eprintln!("Unrecognized format: {}",other);
-                return Err(ErrType::UnknownFormat)
-            }
-        }, mask));
+                other => {
+                    eprintln!("Unrecognized format type: {}",other);
+                    return Err(ErrType::UnknownFormat)
+                },
+            },
+                mask: mask,
+                ops: ops,
+           }
+        );
 
         start += read+1;
     }

@@ -6,11 +6,14 @@ use std::{
 mod parse;
 use parse::instrset as instrset;
 use parse::deassemble as deassemble;
+use deassemble::branch as branch;
 
 use instrset::{
     Instrset,
     binreader::Binreader,
 };
+
+use branch::BranchTree;
 
 
 fn main() {
@@ -50,15 +53,23 @@ fn main() {
         None      => {println!("No match for {:#b}",a);},
     }
     */
-    let mut binreader: Binreader;
-
     // De-assemble a binary file
-    binreader = match Binreader::new(is.wordsize, &argv[2], is.endian_little) {
+    // Open file
+    let mut binreader = match Binreader::new(is.wordsize, &argv[2], is.endian_little) {
         Some(br) => br,
         None => { return },
     };
 
-    match deassemble::deassemble_file(&mut binreader,&is) {
+    // find any branch labels who move upwards
+    let mut branches: BranchTree = BranchTree::new();
+    branch::add_branch_ups(&mut binreader,&mut branches, &is.set);
+    if let Err(why)=binreader.rewind() {
+        eprintln!("Error rewinding file: {}",why);
+        return
+    }
+    // deassemble
+
+    match deassemble::deassemble_file(&mut binreader,&is,&mut branches) {
         Ok(()) => { eprintln!("Done reading file {}",argv[2]); },
         Err((ln,e)) => {deassemble::print_deasm_err(ln,e); return}
     }

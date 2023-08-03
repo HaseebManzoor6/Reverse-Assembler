@@ -1,9 +1,10 @@
-#[path="instrset.rs"]
-pub mod instrset;
+#[path="branch.rs"]
+pub mod branch;
+pub use branch::instrset as instrset;
 
 use instrset::{
     Instrset,
-    Fmt,
+    FmtType
 };
 
 use instrset::binreader::{
@@ -14,6 +15,7 @@ use instrset::bits as bits;
 use bits::{
     Wordt,
     minimize,
+    BitOpType,
 };
 
 pub enum DeasmErr {
@@ -28,9 +30,10 @@ pub fn print_deasm_err(i: u64, e: DeasmErr) {
     });
 }
 
-fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
+fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &u64) -> Result<(),DeasmErr> {
     //eprintln!("deassemble: {:#b}",w);
-    let mut mask_total: Wordt = 0;
+    let mut mask_total: bits::Bitmask = 0;
+    let mut d: (Wordt,Wordt); // data under current Fmt mask
     match instrset::get_fmt(w,&is.set,&mut mask_total) {
         None => {
             eprintln!("Unrecognized instruction: {:#b}",w);
@@ -40,27 +43,46 @@ fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
             // TODO lock stdout during loop
             // print instruction
             print!("{}",name);
-            for (f,m) in &ifmt.fmt {
-                match f {
-                    Fmt::Addr => {
-                        print!(" {:#x}",minimize(w,*m).0);},
-                    Fmt::Unsigned => {
-                        print!( " {}",minimize(w,*m).0);},
-                    Fmt::Signed   => {
-                        print!( " {}",bits::twoscomp(minimize(w,*m)));
+            for f in &ifmt.fmt {
+                // Apply BitOps
+                d=minimize(w,f.mask);
+                for op in &f.ops { d.0=match op.typ {
+                    BitOpType::AND => d.0&op.val,
+                    BitOpType::OR => d.0|op.val,
+                    BitOpType::XOR => d.0^op.val,
+                    BitOpType::SL => d.0<<op.val,
+                    BitOpType::SR => d.0>>op.val,
+                }}
+
+                match &f.typ {
+                    FmtType::Addr => {
+                        print!(" {:#x}",d.0);},
+                    FmtType::Unsigned => {
+                        print!( " {}",d.0);},
+                    FmtType::Signed   => {
+                        print!( " {}",bits::twoscomp(d));
                     },
-                    Fmt::Binary => {
-                        print!( " {:#b}",minimize(w,*m).0);
+                    FmtType::Binary => {
+                        print!( " {:#b}",d.0);
                     },
 
-                    Fmt::Ubranch => {print!(" {:#x}",minimize(w,*m).0);},
-                    Fmt::Dbranch => {print!(" {:#x}",minimize(w,*m).0);},
-                    Fmt::Ibranch => {print!(" {:#x}",minimize(w,*m).0);},
-                    Fmt::Sbranch => {print!(" {:#x}",minimize(w,*m).0);},
+                    FmtType::Ubranch => {print!(" {:#x}",d.0);},
+                    FmtType::Dbranch => {
+                        print!(" {:#x}",d.0);
+                        tree.insert((*i)+d.0);
+                    },
+                    FmtType::Ibranch => {
+                        print!(" {:#x}",d.0);
+                        if d.0>0 {tree.insert(( *i)+d.0 );}
+                    },
+                    FmtType::Sbranch => {
+                        print!(" {:#x}",d.0);
+                        if d.0>=(*i) {tree.insert(d.0);}
+                    },
 
-                    Fmt::Ignore => (),
+                    FmtType::Ignore => (),
                 }
-                mask_total |= m;
+                mask_total |= f.mask;
             }
             // default formatter for instructions without format provided
             // Use it if mask_total is less than
@@ -75,19 +97,28 @@ fn deassemble_instr(w: Wordt, is: &Instrset) -> Result<(),DeasmErr> {
     }
 }
 
-pub fn deassemble_file(br: &mut Binreader, is: &Instrset) -> Result<(),(u64,DeasmErr)>{
+pub fn deassemble_file(br: &mut Binreader, is: &Instrset, tree: &mut branch::BranchTree) -> Result<(),(u64,DeasmErr)>{
     // read every instruction
-    for i in 0..br.n_instrs() {
-        match br.next() {
-            Some(w) => {
-                match deassemble_instr(w,&is) {
-                    Ok(()) => {},
-                    Err(e) => {return Err((i,e))}
+    for i in 0..br.n_instrs {
+        // check to generate labels
+        match tree.first() {
+            Some(n) => {
+                if i==*n {
+                    println!("label_{:#x}:",i);
+                    tree.pop_first();
                 }
             },
-            None => { return Err((i,DeasmErr::Internal)) },
+            None => (),
         }
-    }
+
+        // deassemble instruction
+        match br.next() {
+            Some(w) => { match deassemble_instr(w,&is,tree,&i) {
+                Ok(()) => {},
+                Err(e) => {return Err((i,e))}
+            }},
+            None => { return Err((i,DeasmErr::Internal)) },
+    }}
 
     Ok(())
 }

@@ -2,7 +2,9 @@
 * instrset.rs
 * structs for representing an instructions set
 */
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+};
 
 #[path="binreader.rs"]
 pub mod binreader;
@@ -11,12 +13,13 @@ pub use binreader::bits as bits;
 use bits::{
     Wordt,
     Bitmask,
+    BitOp,
 };
 
 /*
  * Formatting types for printing parts of an instruction.
  */
-pub enum Fmt {
+pub enum FmtType {
     Addr,       // memory address
     Signed,     // two's complement integer
     Unsigned,   // positive or zero integer
@@ -30,6 +33,12 @@ pub enum Fmt {
     Ignore,
 }
 
+pub struct Fmt {
+    pub typ: FmtType,
+    pub mask: Bitmask,
+    pub ops: Vec<BitOp>,
+}
+
 /*
  * An Instrfmt describes the parameters an instruction takes.
  * The opcode is not included.
@@ -39,7 +48,7 @@ pub enum Fmt {
  *   [(Fmt::Addr,0b...), (Fmt::Signed,0b...), (Fmt::Addr,0b...)]
  */
 pub struct Instrfmt {
-    pub fmt: Vec<(Fmt,Bitmask)>,
+    pub fmt: Vec<Fmt>,
 }
 
 pub enum Node {
