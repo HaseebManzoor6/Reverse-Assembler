@@ -51,7 +51,7 @@ fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &
             for f in &ifmt.fmt {
                 // Apply BitOps
                 d=minimize(w,f.mask);
-                branch::apply_bit_ops(&f.ops,&mut d.0);
+                bits::apply_bit_ops(f.ops.iter(),&mut d.0);
 
                 match &f.typ {
                     FmtType::Addr => {

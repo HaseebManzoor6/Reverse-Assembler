@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::{
+    fmt::Display,
+    collections::BTreeSet,
+};
 
 
 #[path="instrset.rs"]
@@ -9,7 +12,6 @@ use instrset::{
     Maskmap,
     bits as bits, bits::{
         Wordt, Bitmask,
-        BitOp, BitOpType,
     },
 };
 
@@ -17,18 +19,32 @@ use instrset::{
 
 pub type BranchTree = BTreeSet<u64>;
 
-// TODO move to bits/instrset?
-pub fn apply_bit_ops(ops: &Vec<BitOp>, w: &mut Wordt) {
-    for op in ops {*w=match op.typ {
-        BitOpType::AND => *w&op.val,
-        BitOpType::OR => *w|op.val,
-        BitOpType::XOR => *w^op.val,
-        BitOpType::SL => *w<<op.val,
-        BitOpType::SR => *w>>op.val,
-    }}
+
+pub enum GenLabelsErr {
+    IO(u64),
+    Unrecognized(u64, Wordt),
+    IORewind(std::io::Error),
+}
+impl Display for GenLabelsErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
+        match self {
+            GenLabelsErr::IO(when) =>
+                write!(f,"[At {:#x}] Internal I/O error: could not get next instruction",when),
+            GenLabelsErr::Unrecognized(when,what) =>
+                write!(f,"[At {:#x}] Unknown instruction: {:#x}",when,what),
+            GenLabelsErr::IORewind(why) =>
+                write!(f,"[After generating labels] Failed to rewind file: {}",why),
+        }
+    }
 }
 
-pub fn add_branch_ups(br: &mut Binreader, tree: &mut BranchTree, set: &Maskmap) -> bool {
+
+
+/*
+ * Add any labels in the file wrapped by <br> who branch upwards to the
+ *  labels set <tree>
+ */
+pub fn add_branch_ups(br: &mut Binreader, tree: &mut BranchTree, set: &Maskmap) -> Result<(),GenLabelsErr> {
     let mut mask: Bitmask=0; // just so get_fmt can track it
     let mut dest: (Wordt, Wordt);
 
@@ -37,7 +53,7 @@ pub fn add_branch_ups(br: &mut Binreader, tree: &mut BranchTree, set: &Maskmap) 
             Some((_name,ifmt)) => { for f in &ifmt.fmt {
                 dest = bits::minimize(w,f.mask);
 
-                apply_bit_ops(&f.ops, &mut dest.0);
+                bits::apply_bit_ops(f.ops.iter(), &mut dest.0);
 
                 match &f.typ {
                     FmtType::Ubranch => {tree.insert(i-dest.0);},
@@ -51,12 +67,14 @@ pub fn add_branch_ups(br: &mut Binreader, tree: &mut BranchTree, set: &Maskmap) 
                 }
             }},
             None => {
-                // TODO combine this with error handling in deassemble.rs
-                eprintln!("At {:#x}: Unrecognized instruction: {:#b}",i,w);
-                return false
+                return Err(GenLabelsErr::Unrecognized(i,w))
             },
         }},
-        None => { return false },
+        None => { return Err(GenLabelsErr::IO(i)) },
     }}
-    return true
+
+    match br.rewind() {
+        Ok(()) => Ok(()),
+        Err(why) => Err(GenLabelsErr::IORewind(why)),
+    }
 }

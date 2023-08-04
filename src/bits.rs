@@ -40,6 +40,18 @@ pub struct BitOp {
     pub typ: BitOpType,
     pub val: Wordt,
 }
+pub fn apply_bit_ops<'a,I>(ops: I, w: &mut Wordt)
+where
+    I: Iterator<Item = &'a BitOp>,
+{
+    for op in ops {*w=match op.typ {
+        BitOpType::AND => *w&op.val,
+        BitOpType::OR => *w|op.val,
+        BitOpType::XOR => *w^op.val,
+        BitOpType::SL => *w<<op.val,
+        BitOpType::SR => *w>>op.val,
+    }}
+}
 
 /*
  * Two's complement to obtain a signed integer from

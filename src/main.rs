@@ -61,15 +61,15 @@ fn main() {
     };
 
     // find any branch labels who move upwards
-    eprintln!("== Generate Branches ==");
+    eprintln!("== Generate Branch Labels ==");
     let mut branches: BranchTree = BranchTree::new();
-    if !branch::add_branch_ups(&mut binreader,&mut branches, &is.set) {return}
-    if let Err(why)=binreader.rewind() {
-        eprintln!("Error rewinding file: {}",why);
-        return
-    }
-    // deassemble
+    match branch::add_branch_ups(&mut binreader,&mut branches, &is.set) {
+        Ok(()) => {eprintln!("Generated branches for file {}",argv[2]);},
+        Err(why) => eprintln!("{}",why),
+    };
+        
 
+    // deassemble
     eprintln!("== Deassemble ==");
     match deassemble::deassemble_file(&mut binreader,&is,&mut branches) {
         Ok(()) => { eprintln!("Done reading file {}",argv[2]); },
