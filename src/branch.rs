@@ -21,19 +21,16 @@ pub type BranchTree = BTreeSet<u64>;
 
 
 pub enum GenLabelsErr {
-    IO(u64),
     Unrecognized(u64, Wordt),
-    IORewind(std::io::Error),
+    Binread(u64,instrset::binreader::BinReaderErr),
 }
 impl Display for GenLabelsErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
         match self {
-            GenLabelsErr::IO(when) =>
-                write!(f,"[At {:#x}] Internal I/O error: could not get next instruction",when),
             GenLabelsErr::Unrecognized(when,what) =>
                 write!(f,"[At {:#x}] Unknown instruction: {:#x}",when,what),
-            GenLabelsErr::IORewind(why) =>
-                write!(f,"[After generating labels] Failed to rewind file: {}",why),
+            GenLabelsErr::Binread(when,why) =>
+                write!(f,"[At {:#x}] I/O error: {}",when,why),
         }
     }
 }
@@ -49,7 +46,7 @@ pub fn add_branch_ups(br: &mut Binreader, tree: &mut BranchTree, set: &Maskmap) 
     let mut dest: (Wordt, Wordt);
 
     for i in 0..br.n_instrs { match br.next() {
-        Some(w) => { match instrset::get_fmt(w, set, &mut mask) {
+        Ok(w) => { match instrset::get_fmt(w, set, &mut mask) {
             Some((_name,ifmt)) => { for f in &ifmt.fmt {
                 dest = bits::minimize(w,f.mask);
 
@@ -70,11 +67,11 @@ pub fn add_branch_ups(br: &mut Binreader, tree: &mut BranchTree, set: &Maskmap) 
                 return Err(GenLabelsErr::Unrecognized(i,w))
             },
         }},
-        None => { return Err(GenLabelsErr::IO(i)) },
+        Err(why) => { return Err(GenLabelsErr::Binread(i,why)) },
     }}
 
     match br.rewind() {
         Ok(()) => Ok(()),
-        Err(why) => Err(GenLabelsErr::IORewind(why)),
+        Err(why) => Err(GenLabelsErr::Binread(br.n_instrs,why)),
     }
 }

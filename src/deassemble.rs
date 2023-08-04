@@ -16,7 +16,7 @@ pub use branch::{
 
 enum DeasmErrType {
     UnknownOp(Wordt),
-    InternalNoNextInstr,
+    Binread(instrset::binreader::BinReaderErr),
 }
 pub struct DeasmErr {
     typ: DeasmErrType,
@@ -24,11 +24,11 @@ pub struct DeasmErr {
 }
 impl Display for DeasmErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
-        match self.typ {
+        match &self.typ {
             DeasmErrType::UnknownOp(w) =>
                 write!(f, "[At {:#x}] Unknown instruction: {:#x}",self.words_read,w),
-            DeasmErrType::InternalNoNextInstr =>
-                write!(f,"[At {:#x}] Internal I/O error: Could not get next instruction",self.words_read),
+            DeasmErrType::Binread(why) =>
+                write!(f,"[At {:#x}] I/O error: {}",self.words_read,why),
         }
     }
 }
@@ -119,15 +119,15 @@ pub fn deassemble_file(br: &mut Binreader, is: &Instrset, tree: &mut branch::Bra
 
         // deassemble instruction
         match br.next() {
-            Some(w) => { match deassemble_instr(w,&is,tree,&i) {
+            Ok(w) => { match deassemble_instr(w,&is,tree,&i) {
                 Ok(()) => (),
                 Err(mut e) => {
                     e.words_read=i;
                     return Err(e)
                 }
             }},
-            None => { return Err(DeasmErr {
-                typ: DeasmErrType::InternalNoNextInstr,
+            Err(why) => { return Err(DeasmErr {
+                typ: DeasmErrType::Binread(why),
                 words_read: i,
             })},
     }}
