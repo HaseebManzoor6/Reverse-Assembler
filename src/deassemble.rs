@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[path="branch.rs"]
 pub mod branch;
 pub use branch::{
@@ -12,26 +14,35 @@ pub use branch::{
     }
 };
 
-pub enum DeasmErr {
-    NoOp,
-    Internal,
+enum DeasmErrType {
+    UnknownOp(Wordt),
+    InternalNoNextInstr,
 }
-
-pub fn print_deasm_err(i: u64, e: DeasmErr) {
-    eprintln!("At {:#x}: {} ",i,match e {
-        DeasmErr::NoOp => "Unknown instruction exists in the binary",
-        DeasmErr::Internal => "Internal error",
-    });
+pub struct DeasmErr {
+    typ: DeasmErrType,
+    words_read: Wordt,
+}
+impl Display for DeasmErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
+        match self.typ {
+            DeasmErrType::UnknownOp(w) =>
+                write!(f, "[At {:#x}] Unknown instruction: {:#x}",self.words_read,w),
+            DeasmErrType::InternalNoNextInstr =>
+                write!(f,"[At {:#x}] Internal I/O error: Could not get next instruction",self.words_read),
+        }
+    }
 }
 
 fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &u64) -> Result<(),DeasmErr> {
-    //eprintln!("deassemble: {:#b}",w);
     let mut mask_total: bits::Bitmask = 0;
     let mut d: (Wordt,Wordt); // data under current Fmt mask
+
     match instrset::get_fmt(w,&is.set,&mut mask_total) {
         None => {
-            eprintln!("Unrecognized instruction: {:#b}",w);
-            return Err(DeasmErr::NoOp)
+            return Err(DeasmErr {
+                typ: DeasmErrType::UnknownOp(w),
+                words_read: 0, // will be set by deassemble_file
+            })
         },
         Some((name,ifmt)) => {
             // TODO lock stdout during loop
@@ -79,7 +90,7 @@ fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &
                 }
                 mask_total |= f.mask;
             }
-            // default formatter for instructions without format provided
+            // default formatter for instruction parts without format provided
             // Use it if mask_total is less than
             //  maximum possible word of size <is.wordsize>,
             //  i.e. 0b11111111 for 1 byte wordsize
@@ -92,7 +103,7 @@ fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &
     }
 }
 
-pub fn deassemble_file(br: &mut Binreader, is: &Instrset, tree: &mut branch::BranchTree) -> Result<(),(u64,DeasmErr)>{
+pub fn deassemble_file(br: &mut Binreader, is: &Instrset, tree: &mut branch::BranchTree) -> Result<(),DeasmErr>{
     // read every instruction
     for i in 0..br.n_instrs {
         // check to generate labels
@@ -109,10 +120,16 @@ pub fn deassemble_file(br: &mut Binreader, is: &Instrset, tree: &mut branch::Bra
         // deassemble instruction
         match br.next() {
             Some(w) => { match deassemble_instr(w,&is,tree,&i) {
-                Ok(()) => {},
-                Err(e) => {return Err((i,e))}
+                Ok(()) => (),
+                Err(mut e) => {
+                    e.words_read=i;
+                    return Err(e)
+                }
             }},
-            None => { return Err((i,DeasmErr::Internal)) },
+            None => { return Err(DeasmErr {
+                typ: DeasmErrType::InternalNoNextInstr,
+                words_read: i,
+            })},
     }}
 
     Ok(())

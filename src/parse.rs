@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     fs::File,
     io::{self, BufRead},
     u64,
@@ -42,29 +43,31 @@ pub enum ErrType {
     Other,
 }
 
+impl Display for ErrType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
+        write!(f,"{}", match self {
+            ErrType::NoWordsize => "Expected word size declaraction (like \"4 byte words\") at start of file",
+            ErrType::NoMask => "Expected bit mask for opcodes (like \"mask b01110000 {\" for 3 bit opcodes) here",
+            ErrType::ZeroWordsize => "Word size cannot be 0",
+            ErrType::BadEndian => "Expected endianness declaration like \"4 byte little endian words\" as first line of file. \"little\" or \"big\" endian are accepted",
 
+            ErrType::ZeroMask => "Bit masks cannot be 0",
 
-pub fn err_msg(t: ErrType) {
-    eprintln!("\t{}", match t {
-        ErrType::NoWordsize => "Expected word size declaraction (like \"4 byte words\") at start of file",
-        ErrType::NoMask => "Expected bit mask for opcodes (like \"mask b01110000 {\" for 3 bit opcodes) here",
-        ErrType::ZeroWordsize => "Word size cannot be 0",
-        ErrType::BadEndian => "Expected endianness declaration like \"4 byte little endian words\" as first line of file. \"little\" or \"big\" endian are accepted",
+            ErrType::ParseNumber => "Error parsing a number. Prefix numbers with \'0b\' for binary or \'0x\' for hexadecimal. Numbers are base 10 otherwise",
 
-        ErrType::ZeroMask => "Bit masks cannot be 0",
+            ErrType::ExtraClosingBrace => "Extra closing brace",
 
-        ErrType::ParseNumber => "Error parsing a number. Prefix numbers with \'0b\' for binary or \'0x\' for hexadecimal. Numbers are base 10 otherwise",
+            ErrType::Internal => "Internal Error",
 
-        ErrType::ExtraClosingBrace => "Extra closing brace",
+            ErrType::UnknownFormat => "Unrecognized format",
+            ErrType::ExpectedNumber => "Expected a number here, found end of line",
 
-        ErrType::Internal => "Internal Error",
-
-        ErrType::UnknownFormat => "Unrecognized format",
-        ErrType::ExpectedNumber => "Expected a number here, found end of line",
-
-        ErrType::Other => "Malformed line",
-    })
+            ErrType::Other => "Malformed line",
+        })
+    }
 }
+
+
 
 fn parse_number(text: &str) -> Result<Wordt, ParseIntError> {
     if let Some(s)=text.strip_prefix("0b")      {return Wordt::from_str_radix(s,2)}

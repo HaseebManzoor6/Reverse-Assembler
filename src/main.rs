@@ -25,12 +25,12 @@ fn main() {
 
     // Make instructions set from script
     let is: Instrset;
+    eprintln!("== Read Script ==");
     match File::open(&argv[1]) {
         Ok(file) => {
             match parse::parse_file(&file,argv.len()==4 && argv[3]=="-reverse") {
                 Err((t,ln)) => {
-                    eprintln!("Line {}: Syntax error in file:",ln);
-                    parse::err_msg(t);
+                    eprintln!("Line {}: Syntax error in file: {}",ln,t);
                     return
                 },
                 Ok(d) => { 
@@ -61,17 +61,19 @@ fn main() {
     };
 
     // find any branch labels who move upwards
+    eprintln!("== Generate Branches ==");
     let mut branches: BranchTree = BranchTree::new();
-    branch::add_branch_ups(&mut binreader,&mut branches, &is.set);
+    if !branch::add_branch_ups(&mut binreader,&mut branches, &is.set) {return}
     if let Err(why)=binreader.rewind() {
         eprintln!("Error rewinding file: {}",why);
         return
     }
     // deassemble
 
+    eprintln!("== Deassemble ==");
     match deassemble::deassemble_file(&mut binreader,&is,&mut branches) {
         Ok(()) => { eprintln!("Done reading file {}",argv[2]); },
-        Err((ln,e)) => {deassemble::print_deasm_err(ln,e); return}
+        Err(why) => {eprintln!("{}",why); return}
     }
 }
 
