@@ -15,7 +15,6 @@ use instrset::bits as bits;
 use bits::{
     Wordt,
     minimize,
-    BitOpType,
 };
 
 pub enum DeasmErr {
@@ -46,13 +45,7 @@ fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &
             for f in &ifmt.fmt {
                 // Apply BitOps
                 d=minimize(w,f.mask);
-                for op in &f.ops { d.0=match op.typ {
-                    BitOpType::AND => d.0&op.val,
-                    BitOpType::OR => d.0|op.val,
-                    BitOpType::XOR => d.0^op.val,
-                    BitOpType::SL => d.0<<op.val,
-                    BitOpType::SR => d.0>>op.val,
-                }}
+                branch::apply_bit_ops(&f.ops,&mut d.0);
 
                 match &f.typ {
                     FmtType::Addr => {
@@ -66,17 +59,24 @@ fn deassemble_instr(w: Wordt, is: &Instrset, tree: &mut branch::BranchTree, i: &
                         print!( " {:#b}",d.0);
                     },
 
-                    FmtType::Ubranch => {print!(" {:#x}",d.0);},
+                    FmtType::Ubranch => {print!(" label_{:#x}",(*i)-d.0);},
                     FmtType::Dbranch => {
-                        print!(" {:#x}",d.0);
+                        print!(" label_{:#x}",(*i)+d.0);
                         tree.insert((*i)+d.0);
                     },
                     FmtType::Ibranch => {
-                        print!(" {:#x}",d.0);
-                        if d.0>0 {tree.insert(( *i)+d.0 );}
+                        if d.0>0 {
+                            print!(" label_{:#x}",(*i)+d.0);
+                            tree.insert(( *i)+d.0 );
+                        }
+                        else {
+                            print!(" label_{:#x}",
+                                (*i)-Wordt::from_le_bytes((-1*bits::twoscomp(d)).to_le_bytes())
+                            )
+                        }
                     },
                     FmtType::Sbranch => {
-                        print!(" {:#x}",d.0);
+                        print!(" label_{:#x}",d.0);
                         if d.0>=(*i) {tree.insert(d.0);}
                     },
 
