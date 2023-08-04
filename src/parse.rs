@@ -10,22 +10,21 @@ use std::{
 
 #[path="deassemble.rs"]
 pub mod deassemble;
-pub use deassemble::instrset as instrset;
 
-use instrset::{
+pub use deassemble::instrset::{
+    self as instrset,
     Instrfmt,
     Fmt, FmtType,
     Node,
     Maskmap,
     Instrset,
+    bits as bits, bits::{
+        Wordt,
+        Bitmask,
+        BitOp, BitOpType,
+    },
 };
 
-use instrset::bits as bits;
-use bits::{
-    Wordt,
-    Bitmask,
-    BitOp, BitOpType,
-};
 
 pub enum ErrType {
     NoWordsize,

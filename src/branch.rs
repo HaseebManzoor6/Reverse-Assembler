@@ -3,16 +3,14 @@ use std::collections::BTreeSet;
 
 #[path="instrset.rs"]
 pub mod instrset;
-
-use instrset::binreader::Binreader;
 use instrset::{
+    binreader::Binreader,
     FmtType,
-    Maskmap
-};
-use instrset::bits as bits;
-use bits::{
-    Wordt, Bitmask,
-    BitOp, BitOpType,
+    Maskmap,
+    bits as bits, bits::{
+        Wordt, Bitmask,
+        BitOp, BitOpType,
+    },
 };
 
 

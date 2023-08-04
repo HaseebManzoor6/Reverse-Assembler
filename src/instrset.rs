@@ -8,12 +8,12 @@ use std::collections::{
 
 #[path="binreader.rs"]
 pub mod binreader;
-pub use binreader::bits as bits;
-
-use bits::{
-    Wordt,
-    Bitmask,
-    BitOp,
+pub use binreader::{
+    bits as bits, bits::{
+        Wordt,
+        Bitmask,
+        BitOp,
+    },
 };
 
 /*

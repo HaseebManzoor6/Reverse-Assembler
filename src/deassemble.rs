@@ -1,20 +1,15 @@
 #[path="branch.rs"]
 pub mod branch;
-pub use branch::instrset as instrset;
-
-use instrset::{
-    Instrset,
-    FmtType
-};
-
-use instrset::binreader::{
-    Binreader,
-};
-
-use instrset::bits as bits;
-use bits::{
-    Wordt,
-    minimize,
+pub use branch::{
+    instrset as instrset, instrset::{
+        Instrset,
+        FmtType,
+        binreader::Binreader,
+        bits as bits, bits::{
+            Wordt,
+            minimize,
+        },
+    }
 };
 
 pub enum DeasmErr {
