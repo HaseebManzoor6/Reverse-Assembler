@@ -28,43 +28,69 @@ pub use deassemble::instrset::{
 
 
 pub enum ErrType {
-    NoWordsize,
-    ExtraClosingBrace,
-    NoMask,
+    NoWordsize(String),
+    NoMask(String),
     ZeroWordsize,
-    BadEndian,
-    ZeroMask,
-    ParseNumber,
-    Internal,
+    BadEndian(String),
+    ZeroMask(String),
+    ParseNumber(String,ParseIntError),
+    ExtraClosingBrace,
+    Internal(std::io::Error),
 
-    UnknownFormat,
-    ExpectedNumber,
+    UnknownFormat(String),
+    ExpectedNumber(String),
 
     Other,
 }
 
 impl Display for ErrType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(),std::fmt::Error> {
-        write!(f,"{}", match self {
-            ErrType::NoWordsize => "Expected word size declaraction (like \"4 byte words\") at start of file",
-            ErrType::NoMask => "Expected bit mask for opcodes (like \"mask b01110000 {\" for 3 bit opcodes) here",
-            ErrType::ZeroWordsize => "Word size cannot be 0",
-            ErrType::BadEndian => "Expected endianness declaration like \"4 byte little endian words\" as first line of file. \"little\" or \"big\" endian are accepted",
+        match self {
+            ErrType::NoWordsize(line) =>
+                write!(f,"Expected word size declaration (like \"4 byte little endian words\") at start of file. Found:\n{}",
+                line),
+            ErrType::NoMask(found) =>
+                write!(f,"Expected bit mask for opcodes (like \"mask b01110000 {{\" for 3 bit opcodes) here. Found:\n{}",
+                found),
+            ErrType::ZeroWordsize => write!(f,"Word size cannot be 0"),
+            ErrType::BadEndian(line) =>
+                write!(f,"Expected endianness declaration like \"4 byte little endian words\" in first line of file. 
+                       \"little endian\" or \"big endian\" are accepted. In line:\n{}",
+                line),
 
-            ErrType::ZeroMask => "Bit masks cannot be 0",
+            ErrType::ZeroMask(mask) =>
+                write!(f,"Bit masks cannot be 0. Erroneous bitmask:\n{}",
+                mask),
 
-            ErrType::ParseNumber => "Error parsing a number. Prefix numbers with \'0b\' for binary or \'0x\' for hexadecimal. Numbers are base 10 otherwise",
+            ErrType::ParseNumber(num,why) =>
+                write!(f,"Couldn't parse \"{}\" as a number: {}.\n
+                   Prefix numbers with \'0b\' for binary or \'0x\' for hexadecimal.
+                   Numbers are base 10 otherwise.",
+                   why, num),
 
-            ErrType::ExtraClosingBrace => "Extra closing brace",
+            ErrType::ExtraClosingBrace => write!(f,"Extra closing brace"),
 
-            ErrType::Internal => "Internal Error",
+            ErrType::Internal(why) => write!(f,"I/O error: {}",why),
 
-            ErrType::UnknownFormat => "Unrecognized format",
-            ErrType::ExpectedNumber => "Expected a number here, found end of line",
+            ErrType::UnknownFormat(fmt) => write!(f,"Unrecognized format: \"{}\"",fmt),
+            ErrType::ExpectedNumber(lastword) => write!(f,"Expected a number after \"{}\", found end of line",lastword),
 
-            ErrType::Other => "Malformed line",
-        })
+            ErrType::Other => write!(f,"Malformed line"),
+        }
     }
+}
+
+/*
+ * Helper for error handling
+ * Only to be called in error cases!
+ * Concatenate all strings in <words> to a String
+ */
+fn wordsvec_to_string(words: &Vec<&str>) -> String {
+    let mut ret=String::new();
+    for word in words {
+        ret+=word;
+    }
+    ret
 }
 
 
@@ -85,6 +111,7 @@ fn parse_range(text: &str) -> Option<Bitmask> {
     let mut range: [Wordt; 2]=[0,0];
     let mut ret: Bitmask=0;
 
+    // range
     if text.contains(':') {
         for (i,num) in text.split(':').enumerate() {
             if i>1 {return None}
@@ -99,6 +126,7 @@ fn parse_range(text: &str) -> Option<Bitmask> {
         }
         return Some(ret);
     }
+    // single bit
     else {
         match parse_number(text) {
             Ok(x) => {return Some(1<<x)},
@@ -138,7 +166,6 @@ fn gen_mask(v: &Vec<&str>, start: usize, reverse: usize) -> Option<(Bitmask,usiz
         return Some((mask,1))
     }
 
-    eprintln!("Expected bitmask, found nothing");
     None
 }
 
@@ -152,16 +179,18 @@ fn parse_first_line(words: &Vec<&str>) -> Result<(usize,bool),ErrType> {
         // endianness
         if words.len()==5 && "endian"==words[3] {
             if "big"==words[2] {little_endian=false;}
-            else if "little"!=words[2]  {return Err(ErrType::BadEndian)}
+            else if "little"!=words[2]  {return Err(ErrType::BadEndian(wordsvec_to_string(words)))}
         }
         // wordsize
-        if let Ok(n)=parse_number(&words[0]) {
-            if n==0                  {return Err(ErrType::ZeroWordsize)}
-            else if words[1]=="byte" {return Ok(( (n).try_into().unwrap(),little_endian ))}
+        match parse_number(&words[0]) {
+            Ok(n) => {
+                if n==0                  {return Err(ErrType::ZeroWordsize)}
+                else if words[1]=="byte" {return Ok(( (n).try_into().unwrap(),little_endian ))}
+            },
+            Err(why) => { return Err(ErrType::ParseNumber(words[0].to_string(),why)) }
         }
-        else {return Err(ErrType::ParseNumber)}
     }
-    return Err(ErrType::NoWordsize)
+    return Err(ErrType::NoWordsize(wordsvec_to_string(words)))
 }
 
 /*
@@ -169,16 +198,17 @@ fn parse_first_line(words: &Vec<&str>) -> Result<(usize,bool),ErrType> {
  */
 fn parse_second_line(words: &Vec<&str>, map: &mut Maskmap, reverse: usize) -> Result<(),ErrType> {
     if let Some( (n,_) )=gen_mask(words,0, reverse) {
-        if n==0 {return Err(ErrType::ZeroMask)}
+        if n==0 {return Err(ErrType::ZeroMask(words[0].to_string()))}
 
         map.mask=n;
         return Ok(())
     }
-    else {return Err(ErrType::NoMask)}
+    else {return Err(ErrType::NoMask(words[0].to_string()))}
 }
 
 /*
  * Create an Instrfmt
+ * Must not be called on an empty line.
  */
 fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize) 
 -> Result<Instrfmt,ErrType> {
@@ -194,7 +224,7 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize)
         // gen mask
         match gen_mask(words,start+1, reverse) {
             Some( (x,i) ) => {mask=x; read=i;},
-            None => {return Err(ErrType::NoMask)}
+            None => {return Err(ErrType::NoMask(words[start+1].to_string()))}
         }
 
         // get BitOps
@@ -213,10 +243,10 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize)
             };
 
             // get number
-            if i+1>=words.len() {return Err(ErrType::ExpectedNumber)}
+            if i+1>=words.len() {return Err(ErrType::ExpectedNumber(words.last().expect("Inernal Error: create_fmt() called on empty line").to_string()))}
             n=match parse_number(words[i+1]) {
                 Ok(x) => x,
-                Err(_why) => {return Err(ErrType::ParseNumber)}
+                Err(why) => {return Err(ErrType::ParseNumber(words[i+1].to_string(),why))}
             };
 
             ops.push(BitOp {typ: tmp, val: n});
@@ -239,8 +269,7 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize)
                 "ignore" => FmtType::Ignore,
 
                 other => {
-                    eprintln!("Unrecognized format type: {}",other);
-                    return Err(ErrType::UnknownFormat)
+                    return Err(ErrType::UnknownFormat(other.to_string()))
                 },
             },
                 mask: mask,
@@ -266,8 +295,7 @@ fn create_node(words: &Vec<&str>,mask: Bitmask,reverse: usize) -> Result<(Wordt,
     match parse_number(words[0]) {
         Ok(x) => {n=bits::align(x,mask);},
         Err(why) => {
-            eprintln!("Error parsing a number: {}",why);
-            return Err(ErrType::ParseNumber)
+            return Err(ErrType::ParseNumber(words[0].to_string(),why))
         }
     }
 
@@ -284,7 +312,7 @@ fn create_node(words: &Vec<&str>,mask: Bitmask,reverse: usize) -> Result<(Wordt,
     // map
     return match gen_mask(words,1, reverse) {
         Some( (m,_) ) => Ok((n,Node::Map(Maskmap{mask: m, map: HashMap::new()}))),
-        None => Err(ErrType::NoMask)
+        None => Err(ErrType::NoMask(words[1].to_string()))
     }
 }
 
@@ -321,12 +349,12 @@ pub fn parse_file(file: &File,to_reverse: bool) -> Result<Instrset, (ErrType,u64
                         d.endian_little=le;
                         if to_reverse {reverse=d.wordsize;}
                     },
-                    Err(why) => return Err((why,ln)),
+                    Err(why) => { return Err((why,ln)) },
                 }}
 
                 // Second line (first opcode mask)
                 else if lines_parsed==1 { match parse_second_line(&words, &mut braces.last_mut().unwrap().1, reverse) {
-                    Ok(()) => {},
+                    Ok(()) => (),
                     Err(why) => return Err((why,ln)),
                 }}
 
@@ -362,8 +390,7 @@ pub fn parse_file(file: &File,to_reverse: bool) -> Result<Instrset, (ErrType,u64
                 lines_parsed+=1;
             },
             Err(why) => {
-                eprintln!("Internal error: {}",why);
-                return Err((ErrType::Internal,ln))
+                return Err((ErrType::Internal(why),ln))
             }
         }
     }
