@@ -46,6 +46,11 @@ fn main() {
         },
     }
 
+    if argv.len()<3 {
+        eprintln!("No binary file given; done");
+        return
+    }
+
     // -- De-assemble a binary file --
     // Open file
     let mut binreader = match Binreader::new(is.wordsize, &argv[2], is.endian_little) {
