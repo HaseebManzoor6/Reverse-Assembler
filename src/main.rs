@@ -28,7 +28,7 @@ fn main() {
     eprintln!("== Read Script ==");
     match File::open(&argv[1]) {
         Ok(file) => {
-            match parse::parse_file(&file,argv.len()==4 && argv[3]=="-reverse") {
+            match parse::parse_file(&file) {
                 Err((t,ln)) => {
                     eprintln!("Line {}: Syntax error in file: {}",ln,t);
                     return

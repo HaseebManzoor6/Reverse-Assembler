@@ -31,7 +31,7 @@ pub enum ErrType {
     NoWordsize(String),
     NoMask(String),
     ZeroWordsize,
-    BadEndian(String),
+    NoWordsizeUnits(String),
     ZeroMask(String),
     ParseNumber(String,ParseIntError),
     ExtraClosingBrace,
@@ -61,12 +61,8 @@ impl Display for ErrType {
             ErrType::ZeroWordsize =>
                 write!(f,"Word size cannot be 0"),
 
-            ErrType::BadEndian(line) =>
-                write!(f,"Expected endianness declaration like \
-                        \"4 byte little endian words\" in first line of file. \
-                        \"little endian\" or \"big endian\" are accepted. \
-                        In this line:\n{}",
-                line),
+            ErrType::NoWordsizeUnits(num) =>
+                write!(f,"Wordsize was not given units; add \"bytes\" after: {}",num),
 
             ErrType::ZeroMask(mask) =>
                 write!(f,"Bit masks cannot be 0. Erroneous bitmask:\n{}",
@@ -102,6 +98,7 @@ fn wordsvec_to_string(words: &Vec<&str>) -> String {
     let mut ret=String::new();
     for word in words {
         ret+=word;
+        ret+=" ";
     }
     ret
 }
@@ -197,25 +194,45 @@ fn gen_mask(v: &Vec<&str>, start: usize, reverse: usize) -> Option<(Bitmask,usiz
 /*
  * Read wordsize and endianness
  */
-fn parse_first_line(words: &Vec<&str>) -> Result<(usize,bool),ErrType> {
-    let mut little_endian: bool=true;
+fn parse_first_line(words: &Vec<&str>) -> Result<(usize,bool,bool),ErrType> {
+    let mut native_endian: bool=true;
+    let mut reversed: bool=false;
+    let wordsize: usize;
 
-    if (words.len()==3 || words.len()==5) && "words"==words[words.len()-1] {
-        // endianness
-        if words.len()==5 && "endian"==words[3] {
-            if "big"==words[2] {little_endian=false;}
-            else if "little"!=words[2]  {return Err(ErrType::BadEndian(wordsvec_to_string(words)))}
-        }
-        // wordsize
+    if (words.len()>=3 && words.len()<=6) && "words"==words[words.len()-1] {
+        // wordsize from first 2 words
         match parse_number(&words[0]) {
             Ok(n) => {
                 if n==0                  {return Err(ErrType::ZeroWordsize)}
-                else if words[1]=="byte" {return Ok(( (n).try_into().unwrap(),little_endian ))}
+                else if words[1]=="byte" {wordsize=n.try_into().unwrap()}
+                else {return Err(ErrType::NoWordsizeUnits(words[0].to_string()))}
             },
             Err(why) => { return Err(ErrType::ParseNumber(words[0].to_string(),why)) }
         }
+
+        // check remaining words for reversed flag and endianness
+        let mut i=2; // number of words already read
+        while i<words.len()-1 {
+            eprintln!("[dbg] {}",words[i]);
+            if words[i]=="reversed" {
+                reversed=true;
+            }
+            else if words[i]=="nonnative" && words.len()>i+1 && words[i+1]=="endian" {
+                i+=1;
+                native_endian=false;
+            }
+            else if words[i]=="native" && words.len()>i+1 && words[i+1]=="endian" {
+                // do nothing
+                i+=1;
+            }
+            else {
+                return Err(ErrType::NoWordsize(wordsvec_to_string(words)))
+            }
+            i+=1;
+        }
+        return Ok((wordsize,native_endian,reversed))
     }
-    return Err(ErrType::NoWordsize(wordsvec_to_string(words)))
+    Err(ErrType::NoWordsize(wordsvec_to_string(words)))
 }
 
 /*
@@ -343,9 +360,11 @@ fn create_node(words: &Vec<&str>,mask: Bitmask,reverse: usize) -> Result<(Wordt,
     }
 }
 
-pub fn parse_file(file: &File,to_reverse: bool) -> Result<Instrset, (ErrType,u64)> {
+pub fn parse_file(file: &File) -> Result<Instrset, (ErrType,u64)> {
     // Curly {} braces represent nesting of Maskmaps. The Wordt is the index in the parent map
     let mut braces: Vec<(Wordt, Maskmap)> = Vec::new();
+    // <reverse> should be set to 0 for no reversing, or wordsize to reverse all bitmasks by that
+    // many bits. Should be set when reading first line of file
     let mut reverse: usize = 0;
 
     let mut d=Instrset {
@@ -370,7 +389,7 @@ pub fn parse_file(file: &File,to_reverse: bool) -> Result<Instrset, (ErrType,u64
 
                 // First line (wordsize declaration)
                 if lines_parsed==0 { match parse_first_line(&words) {
-                    Ok((n,le)) => {
+                    Ok((n,le,to_reverse)) => {
                         d.wordsize=n;
                         d.endian_little=le;
                         if to_reverse {reverse=d.wordsize;}
