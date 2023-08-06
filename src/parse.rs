@@ -6,6 +6,7 @@ use std::{
     num::ParseIntError,
     collections::{
         HashMap,
+        LinkedList,
     },
 };
 
@@ -213,7 +214,6 @@ fn parse_first_line(words: &Vec<&str>) -> Result<(usize,bool,bool),ErrType> {
         // check remaining words for reversed flag and endianness
         let mut i=2; // number of words already read
         while i<words.len()-1 {
-            eprintln!("[dbg] {}",words[i]);
             if words[i]=="reversed" {
                 reversed=true;
             }
@@ -258,7 +258,7 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize)
     let mut mask: Bitmask;
     let mut read: usize;
 
-    let mut ops: Vec<BitOp>;
+    let mut ops: LinkedList<BitOp>;
     let mut n: Wordt;
     let mut tmp: BitOpType;
 
@@ -270,7 +270,7 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize)
         }
 
         // get BitOps
-        ops=Vec::new();
+        ops=LinkedList::new();
         for i in start+read+1..words.len() {
 
             // get op
@@ -294,7 +294,7 @@ fn create_fmt(words: &Vec<&str>, mut start: usize, reverse: usize)
                 Err(why) => {return Err(ErrType::ParseNumber(words[i+1].to_string(),why))}
             };
 
-            ops.push(BitOp {typ: tmp, val: n});
+            ops.push_back(BitOp {typ: tmp, val: n});
             read+=2;
         }
 

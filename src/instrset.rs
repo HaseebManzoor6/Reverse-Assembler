@@ -4,6 +4,7 @@
 */
 use std::collections::{
     HashMap,
+    LinkedList,
 };
 
 #[path="binreader.rs"]
@@ -36,7 +37,7 @@ pub enum FmtType {
 pub struct Fmt {
     pub typ: FmtType,
     pub mask: Bitmask,
-    pub ops: Vec<BitOp>,
+    pub ops: LinkedList<BitOp>,
 }
 
 /*
