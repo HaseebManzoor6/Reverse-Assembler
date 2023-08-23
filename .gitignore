@@ -1,3 +1,4 @@
 Cargo.*
 /target
 /test/*
+massif.*
